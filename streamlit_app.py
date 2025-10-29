@@ -1,5 +1,5 @@
 import streamlit as st
-import httpx
+import requests # Retour à 'requests' à cause de ModuleNotFoundError
 from bs4 import BeautifulSoup
 import time
 import pandas as pd
@@ -12,39 +12,31 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- Logique de vérification (Corrigée v7) ---
-# Utilisation de httpx avec HTTP/2 et des headers réalistes
-CLIENT = httpx.Client(
-    headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5.37.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/5.37.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-    },
-    follow_redirects=True,
-    http2=True,  # Important pour éviter le blocage
-    timeout=20.0
-)
+# --- Logique de vérification (Corrigée v8) ---
+# v8 = Logique de la v6/v7 (2 étapes + parse <cite>)
+#      MAIS avec la bibliothèque 'requests' (car httpx n'est pas disponible)
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5.37.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/5.37.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+}
 
 def _execute_search(query: str, url: str) -> str:
     """
     Fonction d'aide : Exécute UNE requête Google et vérifie la présence de l'URL.
     Utilise la logique v5 (recoller les <cite>) qui est la plus fiable.
-    Utilise httpx (v7) pour la requête réseau.
+    Utilise requests (v8) pour la requête réseau.
     Retourne "Indexed", "Not Found", ou "Blocked".
     """
-    # quote() est nécessaire pour encoder correctement les requêtes (ex: " ")
     google_search_url = f"https://www.google.com/search?q={quote(query)}&hl=fr&cr=countryFR"
     
     try:
-        # Remplacement de requests.get par client.get
-        response = CLIENT.get(google_search_url)
+        response = requests.get(google_search_url, headers=HEADERS, timeout=20)
         
-        # Gestion des codes d'erreur (429 = Rate Limit)
         if response.status_code == 429:
             return "Blocked"
         
-        response.raise_for_status() # Lève une erreur pour 4xx/5xx (sauf 429 déjà géré)
+        response.raise_for_status() # Lève une erreur pour 4xx/5xx (sauf 429)
         
         soup = BeautifulSoup(response.text, 'html.parser')
         page_text = soup.get_text()
@@ -71,7 +63,7 @@ def _execute_search(query: str, url: str) -> str:
         # 4. Si non bloqué, pas de "aucun doc", et pas dans les <cite> -> non trouvé
         return "Not Found"
 
-    except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException):
+    except (requests.exceptions.HTTPError, requests.exceptions.RequestException, requests.exceptions.Timeout):
         return "Blocked" # Gère les erreurs HTTP, de connexion, et les timeouts
     except Exception:
         return "Blocked" # Erreur inattendue
@@ -82,7 +74,7 @@ def _execute_search(query: str, url: str) -> str:
 def check_google_indexing(url: str) -> dict:
     """
     Vérifie si une URL est indexée sur Google en suivant la logique
-    multi-étapes (v6) mais avec le client réseau httpx (v7).
+    multi-étapes (v6) mais avec la bibliothèque 'requests' (v8).
     """
     result = {"URL": url, "Statut": ""}
 
@@ -114,9 +106,9 @@ def check_google_indexing(url: str) -> dict:
 
 # --- Interface de l'application Streamlit (inchangée) ---
 
-st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée v7)")
+st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée v8)")
 st.write("Collez une ou plusieurs URLs (une par ligne) pour vérifier si elles sont *réellement* indexées par Google.")
-st.write("Cette version utilise `httpx` (HTTP/2) et une vérification en 2 étapes (`site:URL` puis `\"URL\"`) pour une fiabilité maximale.")
+st.write("Utilise `requests` (requis par l'environnement) et une vérification en 2 étapes (`site:URL` puis `\"URL\"`) pour une fiabilité maximale.")
 
 # Zone de texte pour les URLs
 urls_text = st.text_area("Liste d'URLs à vérifier", height=200, placeholder="https://www.example.com/page1\nhttps://www.example.com/page2")
