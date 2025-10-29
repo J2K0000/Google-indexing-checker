@@ -52,17 +52,26 @@ def check_google_indexing(url: str) -> dict:
              result["Statut"] = "❌ Non Indexée"
 
         # 3. Si aucune phrase de "non-indexation" n'est trouvée,
-        #    cela ne signifie pas que l'URL est indexée (c'était l'erreur).
-        #    Google peut afficher des résultats *similaires* du même domaine.
-        #    Nous devons donc chercher la *preuve* que notre URL exacte est présente.
-        #    La balise <cite> est la plus fiable pour ça, car elle affiche l'URL du résultat.
+        #    Nous devons chercher la *preuve* que notre URL exacte est présente.
         else:
             cite_tags = soup.find_all('cite')
             found_in_cite = False
+            
+            # --- NOUVELLE LOGIQUE DE VÉRIFICATION (PLUS FLEXIBLE) ---
+            # On prépare deux versions de l'URL à chercher :
+            # 1. Avec protocole, sans slash final (ex: "https://example.com")
+            # 2. Sans protocole, sans slash final (ex: "example.com")
+            
+            # rstrip('/') enlève le slash final s'il existe
+            url_with_protocol = url.rstrip('/') 
+            url_without_protocol = url_with_protocol.replace("https://", "").replace("http://", "")
+
             for cite in cite_tags:
-                # On vérifie si l'URL exacte est dans le texte de la balise <cite>
-                # (Google peut ajouter '...' ou couper, mais l'URL principale doit y être)
-                if url in cite.get_text():
+                cite_text = cite.get_text()
+                
+                # On vérifie si le texte de la balise <cite> contient
+                # l'une OU l'autre des versions préparées.
+                if url_with_protocol in cite_text or url_without_protocol in cite_text:
                     found_in_cite = True
                     break
             
@@ -72,7 +81,6 @@ def check_google_indexing(url: str) -> dict:
                 # Si on est ici, c'est que Google n'a pas dit "aucun résultat",
                 # mais notre URL n'est pas non plus dans les balises <cite>.
                 # C'est le cas où il montre des pages du domaine, mais pas celle-ci.
-                # C'est donc "Non Indexée" pour cette URL spécifique.
                 result["Statut"] = "❌ Non Indexée (résultats similaires)"
 
     except requests.exceptions.HTTPError as http_err:
@@ -89,7 +97,7 @@ def check_google_indexing(url: str) -> dict:
 
 # --- Interface de l'application Streamlit (inchangée) ---
 
-st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée)")
+st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée v3)")
 st.write("Collez une ou plusieurs URLs (une par ligne) pour vérifier si elles sont *réellement* indexées par Google (via la commande site:).")
 
 # Zone de texte pour les URLs
@@ -128,3 +136,4 @@ if st.button("🚀 Lancer la vérification"):
             "cela signifie que Google a temporairement bloqué votre adresse IP. "
             "Réessayez plus tard."
         )
+
