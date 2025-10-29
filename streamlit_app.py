@@ -1,5 +1,5 @@
 import streamlit as st
-import httpx  # Remplacement de requests
+import httpx
 from bs4 import BeautifulSoup
 import time
 import pandas as pd
