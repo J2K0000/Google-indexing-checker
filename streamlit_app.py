@@ -11,7 +11,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- Logique de vérification (Corrigée) ---
+# --- Logique de vérification (Corrigée v4) ---
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -20,7 +20,8 @@ HEADERS = {
 def check_google_indexing(url: str) -> dict:
     """
     Vérifie si une URL est indexée sur Google et retourne un dictionnaire avec les détails.
-    La logique est plus stricte pour différencier "Indexée" de "Résultats similaires".
+    Version 4 : N'utilise plus <cite>, mais vérifie les liens href des résultats (balises <a>).
+    C'est beaucoup plus fiable contre l'obfuscation de Google.
     """
     query = f"site:{url}"
     # On force la langue (hl=fr) et le pays (cr=countryFR) pour des résultats stables
@@ -35,69 +36,63 @@ def check_google_indexing(url: str) -> dict:
         soup = BeautifulSoup(response.text, 'html.parser')
         page_text = soup.get_text() # Pour les vérifications de texte génériques
 
-        # --- LOGIQUE DE VÉRIFICATION CORRIGÉE ---
+        # --- LOGIQUE DE VÉRIFICATION CORRIGÉE (v4) ---
 
         # 1. Vérification du blocage ou CAPTCHA (prioritaire)
-        # "nos systèmes ont détecté un trafic inhabituel" est le signe de blocage IP
         if "CAPTCHA" in response.text or "nos systèmes ont détecté un trafic inhabituel" in page_text:
             result["Statut"] = "🚫 CAPTCHA/Blocage"
         
         # 2. Vérification des phrases claires de "non-indexation"
-        # C'est le cas où Google ne trouve absolument rien.
         elif "Aucun document ne correspond" in page_text:
             result["Statut"] = "❌ Non Indexée"
         
-        # C'est le cas où Google ne trouve pas l'URL exacte, mais propose des alternatives.
         elif "Il se peut qu'aucun bon résultat ne corresponde" in page_text:
              result["Statut"] = "❌ Non Indexée"
 
-        # 3. Si aucune phrase de "non-indexation" n'est trouvée,
-        #    Nous devons chercher la *preuve* que notre URL exacte est présente.
+        # 3. NOUVELLE LOGIQUE DE DÉTECTION (v4)
+        # Au lieu de lire les <cite> (que Google modifie), on vérifie les liens <a>
         else:
-            cite_tags = soup.find_all('cite')
-            found_in_cite = False
+            all_links = soup.find_all('a')
+            found_in_link = False
             
-            # --- NOUVELLE LOGIQUE DE VÉRIFICATION (PLUS FLEXIBLE) ---
-            # On prépare deux versions de l'URL à chercher :
-            # 1. Avec protocole, sans slash final (ex: "https://example.com")
-            # 2. Sans protocole, sans slash final (ex: "example.com")
+            # Normalise l'URL pour la recherche : enlève protocole et / final
+            # ex: "https://meilleurs-outils-seo.com/" -> "meilleurs-outils-seo.com"
+            # ex: "https://example.com/page-1/" -> "example.com/page-1"
+            normalized_url = url.replace("https://", "").replace("http://", "").rstrip('/')
             
-            # rstrip('/') enlève le slash final s'il existe
-            url_with_protocol = url.rstrip('/') 
-            url_without_protocol = url_with_protocol.replace("https://", "").replace("http://", "")
-
-            for cite in cite_tags:
-                cite_text = cite.get_text()
+            for link in all_links:
+                href = link.get('href')
                 
-                # On vérifie si le texte de la balise <cite> contient
-                # l'une OU l'autre des versions préparées.
-                if url_with_protocol in cite_text or url_without_protocol in cite_text:
-                    found_in_cite = True
-                    break
+                # On cherche les vrais liens de résultats Google.
+                # Ils commencent par /url?q= et contiennent l'URL de destination.
+                if href and href.startswith('/url?q='):
+                    # On vérifie si notre URL normalisée est dans le lien
+                    if normalized_url in href:
+                        found_in_link = True
+                        break
             
-            if found_in_cite:
+            if found_in_link:
                 result["Statut"] = "✅ Indexée"
             else:
                 # Si on est ici, c'est que Google n'a pas dit "aucun résultat",
-                # mais notre URL n'est pas non plus dans les balises <cite>.
+                # mais notre URL n'est pas non plus dans les liens de résultats.
                 # C'est le cas où il montre des pages du domaine, mais pas celle-ci.
                 result["Statut"] = "❌ Non Indexée (résultats similaires)"
 
     except requests.exceptions.HTTPError as http_err:
-        # Gère les erreurs 403, 429 (trop de requêtes), 503, etc.
         result["Statut"] = f"🚫 Erreur HTTP : {http_err.response.status_code}"
     except requests.exceptions.RequestException:
         result["Statut"] = "🚫 Erreur de connexion"
     except Exception:
         result["Statut"] = "🚫 Erreur inattendue"
     
-    # Petite pause pour ne pas surcharger Google et réduire le risque de blocage
-    time.sleep(0.5)
+    # Pause augmentée pour réduire le risque de blocage
+    time.sleep(1.0)
     return result
 
 # --- Interface de l'application Streamlit (inchangée) ---
 
-st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée v3)")
+st.title("🔎 Vérificateur d'Indexation Google (Version Corrigée v4)")
 st.write("Collez une ou plusieurs URLs (une par ligne) pour vérifier si elles sont *réellement* indexées par Google (via la commande site:).")
 
 # Zone de texte pour les URLs
